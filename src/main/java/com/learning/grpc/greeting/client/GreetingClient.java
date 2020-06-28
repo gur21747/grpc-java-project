@@ -10,6 +10,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
 
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -21,7 +22,8 @@ public class GreetingClient {
         //runDummyStub(channel);
         //runUnaryCall(channel);
         //runServerStreamCall(channel);
-        runClientStreamCall(channel);
+        //runClientStreamCall(channel);
+        runBiDiStreamCall(channel);
 
         System.out.println("\nShutting down channel...");
         channel.shutdown();
@@ -35,6 +37,21 @@ public class GreetingClient {
                             .setFirstName("Ribhu - "+i)
                             .build())
                     .build());
+        }
+    }
+
+    private void sendBiDiStreamMessages(StreamObserver<GreetEveryoneRequest> requestObserver){
+        for(int i=1; i<=5; i++){
+            System.out.println("\nSENDING MESSAGE - " + i);
+            requestObserver.onNext(GreetEveryoneRequest.newBuilder()
+                    .setGreeting(Greeting.newBuilder()
+                            .setFirstName("Ribhu - "+i))
+                    .build());
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -132,8 +149,43 @@ public class GreetingClient {
         }
     }
 
+    private void runBiDiStreamCall(ManagedChannel channel){
+        //Create an asynchronous client
+        GreetServiceGrpc.GreetServiceStub asyncClient = GreetServiceGrpc.newStub(channel);
+        CountDownLatch latch = new CountDownLatch(1);
+
+        StreamObserver<GreetEveryoneRequest> requestObserver = asyncClient
+                            .greetEveryone(new StreamObserver<GreetEveryoneResponse>() {
+            @Override
+            public void onNext(GreetEveryoneResponse value) {
+                System.out.println("SERVER RESPONSE = "+ value.getResult());
+            }
+            @Override
+            public void onError(Throwable t) {
+                latch.countDown();
+            }
+            @Override
+            public void onCompleted() {
+                System.out.println("SERVER COMPLETED SENDING");
+                latch.countDown();
+            }
+        });
+
+        // stream messages to the sever
+        sendBiDiStreamMessages(requestObserver);
+
+        // we tell the server that the client is done sending data
+        requestObserver.onCompleted();
+
+        try {
+            latch.await(10L, TimeUnit.SECONDS);  //latch helps in blocking the execution until server responds
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
     public static void main(String[] args) {
-        System.out.printf("gRPC Client Running...");
+        System.out.println("gRPC Client Running...");
         GreetingClient main = new GreetingClient();
         main.run();
     }
